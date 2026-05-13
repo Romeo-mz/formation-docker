@@ -38,6 +38,14 @@ dotnet --version
 redis-cli PING
 psql --version
 ```
+### Installation sous WSL
+
+Sous WSL :
+
+```bash
+sudo apt update
+sudo apt install python3 nodejs npm dotnet-sdk-7.0 redis-server postgresql
+```
 
 ## Configuration minimale
 
@@ -63,20 +71,41 @@ set +a
 redis-server
 ```
 
-Vérification :
+Si vous obtenez `Could not create server TCP listening socket *:6379: bind: Address already in use`, Redis tourne déjà.
 
 ```bash
-redis-cli PING
+sudo lsof -i :6379
+sudo kill -9 <PID>
+
+# Ou plus proprement :
+sudo systemctl stop redis-server.service
 ```
 
-Résultat attendu : `PONG`.
+Vérification :
+
+Le terminal Redis doit afficher `Ready to accept connections`.
+
 
 ### Terminal 2 — PostgreSQL
 
-Lancez PostgreSQL avec votre installation locale, puis vérifiez :
+Lancer PostgreSQL :
 
 ```bash
-psql -U postgres -d postgres -c "select 1;"
+sudo service postgresql start
+```
+
+Configurez ensuite le mot de passe du rôle PostgreSQL utilisé par l'application :
+
+```bash
+sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD 'postgres';"
+```
+
+> Important : `sudo passwd postgres` change le mot de passe de l'utilisateur Linux `postgres`. Le worker .NET utilise une connexion TCP PostgreSQL ; il lui faut donc le mot de passe du rôle PostgreSQL, configuré avec `ALTER USER`.
+
+Puis vérifiez la connexion TCP, comme le fera le worker :
+
+```bash
+PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "select 1;"
 ```
 
 Le worker créera la table `votes` automatiquement.
@@ -86,6 +115,8 @@ Le worker créera la table `votes` automatiquement.
 ```bash
 bash scripts/hard_deploy/run-vote.sh
 ```
+
+> Formatter le script en LF (Unix) si vous êtes sous Windows, sinon il ne fonctionnera pas.
 
 Ouvrez <http://localhost:8080>.
 
@@ -119,9 +150,23 @@ Vous devez voir une ligne par navigateur votant.
 | --- | --- |
 | `vote` ne démarre pas | Redis n'est pas lancé ou `REDIS_HOST` est incorrect |
 | `result` affiche zéro vote | PostgreSQL ou `worker` ne fonctionne pas |
-| `worker` attend en boucle | Redis ou PostgreSQL est inaccessible |
+| `worker` affiche `Waiting for db` en boucle | Lancez `sudo service postgresql start`, puis `sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD 'postgres';"` |
+| `worker` attend en boucle | Redis ou PostgreSQL est inaccessible, ou `POSTGRES_CONNECTION_STRING` ne correspond pas au mot de passe PostgreSQL |
 | impossible de revoter | supprimez le cookie `voter_id` ou utilisez une fenêtre privée |
 
 ## À retenir
 
 Ce volet montre pourquoi le déploiement manuel devient fragile : chaque service a son runtime, son port, ses variables et son ordre de démarrage. Le volet suivant remplace cette friction par des images et Compose.
+
+## Désinstallation
+
+Supprimez les services et les données :
+
+```bash
+redis-cli FLUSHALL
+psql -U postgres -d postgres -c "DROP TABLE IF EXISTS votes;"
+```
+
+```bash
+sudo apt remove --purge dotnet-sdk-7.0 redis-server postgresql
+```

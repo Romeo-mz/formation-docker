@@ -38,9 +38,11 @@ jobs:
      
       - name: Build images with dockerfile
         run: |
-          docker build -t "$REGISTRY/$REPO/vote:$IMAGE_TAG" -f vote/Dockerfile.ci .
-          docker build -t "$REGISTRY/$REPO/result:$IMAGE_TAG" -f result/Dockerfile .
-          docker build -t "$REGISTRY/$REPO/worker:$IMAGE_TAG" -f worker/Dockerfile .
+          # Use each service directory as the build context so local files
+          # (requirements.txt, package.json, etc.) are available to the Dockerfile.
+          docker build -t "$REGISTRY/$REPO/vote:$IMAGE_TAG" -f vote/Dockerfile.ci vote
+          docker build -t "$REGISTRY/$REPO/result:$IMAGE_TAG" -f result/Dockerfile result
+          docker build -t "$REGISTRY/$REPO/worker:$IMAGE_TAG" -f worker/Dockerfile worker
   
       - name: Push images
         run: |

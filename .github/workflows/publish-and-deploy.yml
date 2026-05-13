@@ -31,29 +31,33 @@ jobs:
 
       - name: Login to GitHub Container Registry
         run: echo "${{ github.token }}" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
-
+      
+      - name: downcase REPO
+        run: |
+          echo "REPO=${GITHUB_REPOSITORY@L}" >>${GITHUB_ENV}
+     
       - name: Build images
         run: |
-          VOTE_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/vote:$IMAGE_TAG"
-          RESULT_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/result:$IMAGE_TAG"
-          WORKER_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/worker:$IMAGE_TAG"
+          VOTE_IMAGE="$REGISTRY/$REPO/vote:$IMAGE_TAG"
+          RESULT_IMAGE="$REGISTRY/$REPO/result:$IMAGE_TAG"
+          WORKER_IMAGE="$REGISTRY/$REPO/worker:$IMAGE_TAG"
 
-          docker build --target final -t "$VOTE_IMAGE" -t "$REGISTRY/$IMAGE_NAMESPACE/vote:latest" ./vote
-          docker build -t "$RESULT_IMAGE" -t "$REGISTRY/$IMAGE_NAMESPACE/result:latest" ./result
-          docker build -t "$WORKER_IMAGE" -t "$REGISTRY/$IMAGE_NAMESPACE/worker:latest" ./worker
+          docker build --target final -t "$VOTE_IMAGE" -t "$REGISTRY/$REPO/vote:latest" ./vote
+          docker build -t "$RESULT_IMAGE" -t "$REGISTRY/$REPO/result:latest" ./result
+          docker build -t "$WORKER_IMAGE" -t "$REGISTRY/$REPO/worker:latest" ./worker
 
       - name: Push images
         run: |
-          docker image push "$REGISTRY/$IMAGE_NAMESPACE/vote:$IMAGE_TAG"
-          docker image push "$REGISTRY/$IMAGE_NAMESPACE/vote:latest"
-          docker image push "$REGISTRY/$IMAGE_NAMESPACE/result:$IMAGE_TAG"
-          docker image push "$REGISTRY/$IMAGE_NAMESPACE/result:latest"
-          docker image push "$REGISTRY/$IMAGE_NAMESPACE/worker:$IMAGE_TAG"
-          docker image push "$REGISTRY/$IMAGE_NAMESPACE/worker:latest"
+          docker image push "$REGISTRY/$REPO/vote:$IMAGE_TAG"
+          docker image push "$REGISTRY/$REPO/vote:latest"
+          docker image push "$REGISTRY/$REPO/result:$IMAGE_TAG"
+          docker image push "$REGISTRY/$REPO/result:latest"
+          docker image push "$REGISTRY/$REPO/worker:$IMAGE_TAG"
+          docker image push "$REGISTRY/$REPO/worker:latest"
 
       - name: Print image names
         run: |
           echo "Images publiées :"
-          echo "  ghcr.io/$IMAGE_NAMESPACE/vote:$IMAGE_TAG"
-          echo "  ghcr.io/$IMAGE_NAMESPACE/result:$IMAGE_TAG"
-          echo "  ghcr.io/$IMAGE_NAMESPACE/worker:$IMAGE_TAG"
+          echo "  ghcr.io/$REPO/vote:$IMAGE_TAG"
+          echo "  ghcr.io/$REPO/result:$IMAGE_TAG"
+          echo "  ghcr.io/$REPO/worker:$IMAGE_TAG"

@@ -44,42 +44,11 @@ echo "VOTRE_TOKEN" | docker login ghcr.io --username VOTRE_LOGIN --password-stdi
 
 Résultat attendu : `Login Succeeded`.
 
-## Étape 3 — Configurer les variables
+## Étape 3 — Build et push manuel
 
-Copiez l'exemple :
 
-```bash
-cp .env.ghcr.example .env.ghcr
-```
-
-Éditez `.env.ghcr` :
-
-```bash
-REGISTRY=ghcr.io
-IMAGE_NAMESPACE=VOTRE_LOGIN_GITHUB/formation-vote
-REGISTRY_USERNAME=VOTRE_LOGIN_GITHUB
-REGISTRY_PASSWORD=VOTRE_TOKEN
-IMAGE_TAG=local
-```
-
-Ne commitez jamais `.env.ghcr`.
-
-## Étape 4 — Build et push manuel
-
-```bash
-bash scripts/ghcr/build-and-push.sh
-```
-
-Ce script construit les trois images et les pousse vers GHCR :
-
-```text
-ghcr.io/$IMAGE_NAMESPACE/vote:$IMAGE_TAG
-ghcr.io/$IMAGE_NAMESPACE/result:$IMAGE_TAG
-ghcr.io/$IMAGE_NAMESPACE/worker:$IMAGE_TAG
-```
-
-Vous pouvez aussi le faire image par image pour comprendre chaque commande :
-
+Image par image pour comprendre chaque commande :
+Avec login votre username github
 ```bash
 # Construire
 docker build --target final -t ghcr.io/<login>/formation-vote/vote:local ./vote
@@ -90,6 +59,7 @@ docker image ls ghcr.io/<login>/formation-vote/vote
 # Pousser
 docker image push ghcr.io/<login>/formation-vote/vote:local
 ```
+> Vous pouvez également vérifier le tag de l image dans docker Desktop
 
 Refaites la même chose pour `result` et `worker`.
 

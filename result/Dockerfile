@@ -1,25 +1,21 @@
-FROM node:18-slim
+# TP easy_deploy — Dockerfile volontairement simple pour commencer.
+# À améliorer pendant le TP : utilisateur non-root, cache npm, tini, image finale minimale.
 
-# add curl for healthcheck
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl tini && \
-    rm -rf /var/lib/apt/lists/*
+FROM alpine:3.22
+
+RUN apk add --no-cache curl nodejs npm
 
 WORKDIR /usr/local/app
 
-# have nodemon available for local dev use (file watching)
+# Le docker-compose.yml lance nodemon en développement.
 RUN npm install -g nodemon
 
 COPY package*.json ./
-
-RUN npm ci && \
- npm cache clean --force && \
- mv /usr/local/app/node_modules /node_modules
+RUN npm ci && npm cache clean --force
 
 COPY . .
 
 ENV PORT=80
 EXPOSE 80
 
-ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "server.js"]

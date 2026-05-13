@@ -2,11 +2,13 @@ var express = require('express'),
     async = require('async'),
     { Pool } = require('pg'),
     cookieParser = require('cookie-parser'),
+    path = require('path'),
     app = express(),
     server = require('http').Server(app),
     io = require('socket.io')(server);
 
 var port = process.env.PORT || 4000;
+var databaseUrl = process.env.DATABASE_URL || 'postgres://postgres:postgres@db/postgres';
 
 io.on('connection', function (socket) {
 
@@ -18,7 +20,7 @@ io.on('connection', function (socket) {
 });
 
 var pool = new Pool({
-  connectionString: 'postgres://postgres:postgres@db/postgres'
+  connectionString: databaseUrl
 });
 
 async.retry(

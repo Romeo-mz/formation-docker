@@ -4,11 +4,6 @@ on:
   push:
     branches:
       - github_deploy
-    paths:
-      - "vote/**"
-      - "result/**"
-      - "worker/**"
-      - ".github/workflows/publish-and-deploy.yml"
   workflow_dispatch:
 
 permissions:
@@ -38,8 +33,6 @@ jobs:
      
       - name: Build images with dockerfile
         run: |
-          # Use each service directory as the build context so local files
-          # (requirements.txt, package.json, etc.) are available to the Dockerfile.
           docker build -t "$REGISTRY/$REPO/vote:$IMAGE_TAG" -f vote/Dockerfile.ci vote
           docker build -t "$REGISTRY/$REPO/result:$IMAGE_TAG" -f result/Dockerfile result
           docker build -t "$REGISTRY/$REPO/worker:$IMAGE_TAG" -f worker/Dockerfile worker
@@ -47,11 +40,8 @@ jobs:
       - name: Push images
         run: |
           docker image push "$REGISTRY/$REPO/vote:$IMAGE_TAG"
-          docker image push "$REGISTRY/$REPO/vote:latest"
           docker image push "$REGISTRY/$REPO/result:$IMAGE_TAG"
-          docker image push "$REGISTRY/$REPO/result:latest"
           docker image push "$REGISTRY/$REPO/worker:$IMAGE_TAG"
-          docker image push "$REGISTRY/$REPO/worker:latest"
 
       - name: Print image names
         run: |

@@ -35,61 +35,7 @@ Améliorez progressivement :
 
 Commencez par les faire fonctionner. Optimisez ensuite.
 
-## Démarrage rapide
 
-Depuis la racine du dépôt :
-
-```bash
-docker compose up --build
-```
-
-Ouvrez :
-
-- vote : <http://localhost:8080> ;
-- résultats : <http://localhost:8081>.
-
-Arrêt complet :
-
-```bash
-docker compose down -v
-```
-
-## Construire une image à la fois
-
-```bash
-docker build -t formation-vote:local ./vote
-docker build -t formation-result:local ./result
-docker build -t formation-worker:local ./worker
-```
-
-Puis inspectez :
-
-```bash
-docker image ls | grep formation
-```
-
-## Utiliser vos images dans Compose
-
-Le Compose actuel utilise `build:`. C'est pratique en TP.
-
-Pour tester explicitement une image taguée, remplacez temporairement :
-
-```yaml
-services:
-  vote:
-    build:
-      context: ./vote
-```
-
-par :
-
-```yaml
-services:
-  vote:
-    image: formation-vote:local
-```
-
-Faites la même chose pour `result` et `worker` si besoin.
 
 ## Étapes pédagogiques proposées
 
@@ -151,8 +97,67 @@ docker compose --profile seed up
 ```
 
 Le service `seed` envoie des votes à l'application `vote`.
+## Démarrage rapide
+
+Depuis la racine du dépôt :
+
+```bash
+docker compose up --build
+```
+
+
+
+Ouvrez :
+
+- vote : <http://localhost:8080> ;
+- résultats : <http://localhost:8081>.
+
+Arrêt complet :
+
+```bash
+docker compose down -v
+```
+
+## Construire une image à la fois
+
+```bash
+docker build -t formation-vote:local ./vote
+docker build -t formation-result:local ./result
+docker build -t formation-worker:local ./worker
+```
+
+Puis inspectez :
+
+```bash
+docker image ls | grep formation
+```
+
+## Utiliser vos images dans Compose
+
+Le Compose actuel utilise `build:`. C'est pratique en TP.
+
+Pour tester explicitement une image taguée, remplacez temporairement :
+
+```yaml
+services:
+  vote:
+    build:
+      context: ./vote
+```
+
+par :
+
+```yaml
+services:
+  vote:
+    image: formation-vote:local
+```
+
+Faites la même chose pour `result` et `worker` si besoin.
 
 ## Dépannage
+> Permission denied 
+> Netskope peut bloquer le build. Essayez de monter les certifs netskope dans le dockerfile bloquant pour Docker.
 
 | Symptôme | Cause probable |
 | --- | --- |

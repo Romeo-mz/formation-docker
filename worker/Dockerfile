@@ -1,14 +1,7 @@
-# TP easy_deploy — Dockerfile volontairement simple pour commencer.
-# À améliorer pendant le TP : multi-stage build, runtime sans SDK, support multi-arch.
+FROM mcr.microsoft.com/dotnet/sdk:7.0 AS build
 
-FROM mcr.microsoft.com/dotnet/sdk:7.0
+# TODO
+# Copier le projet et restaurer les dépendances (dotnet restore)
+# Copier le code et publier l'application (dotnet publish)
+# Utiliser un stage final plus léger (dotnet runtime) et copier les fichiers nécessaires depuis le stage de build
 
-WORKDIR /source
-
-COPY *.csproj ./
-RUN dotnet restore
-
-COPY . .
-
-# TODO formation : remplacer dotnet run par dotnet publish + image runtime.
-CMD ["dotnet", "run"]

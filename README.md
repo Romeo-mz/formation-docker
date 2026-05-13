@@ -80,6 +80,11 @@ source .env
 set +a
 ```
 
+Important : si vous mettez une **chaîne de connexion complète** dans `.env` contenant des `;` (points-virgules),
+entourez-la de quotes simples `'...'` dans `.env` — sinon `source .env` coupera la valeur au premier `;`.
+Alternativement, préférez définir `POSTGRES_HOST`, `POSTGRES_USER`, `POSTGRES_PASSWORD` et `POSTGRES_DB`
+et laissez les scripts construire la `POSTGRES_CONNECTION_STRING` automatiquement.
+
 ## Démarrage en 5 terminaux
 
 ### Terminal 1 — Redis
@@ -156,7 +161,11 @@ bash scripts/hard_deploy/run-result.sh
 
 Ouvrez <http://localhost:8081>.
 
+### Terminal 5 — worker
 
+```bash
+bash scripts/hard_deploy/run-worker.sh
+```
 
 ## Checkpoint
 

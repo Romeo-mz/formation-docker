@@ -1,26 +1,28 @@
 #!/usr/bin/env bash
+# build-and-push.sh — construit et pousse les trois images vers GHCR.
+# Usage : bash scripts/ghcr/build-and-push.sh
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
-if [[ -f .env.azure ]]; then
+if [[ -f .env.ghcr ]]; then
   set -a
-  source .env.azure
+  source .env.ghcr
   set +a
 fi
 
 REGISTRY="${REGISTRY:-ghcr.io}"
 IMAGE_NAMESPACE="${IMAGE_NAMESPACE:-${USER:-student}/formation-vote}"
-IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD)}"
+IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD 2>/dev/null || echo local)}"
 
-if [[ -n "${ACR_NAME:-}" ]]; then
-  az acr login --name "$ACR_NAME"
-elif [[ -n "${REGISTRY_USERNAME:-}" && -n "${REGISTRY_PASSWORD:-}" ]]; then
-  echo "$REGISTRY_PASSWORD" | docker login "$REGISTRY" --username "$REGISTRY_USERNAME" --password-stdin
-else
-  echo "No registry credentials provided. If you target GHCR, run: docker login ghcr.io" >&2
+if [[ -z "${REGISTRY_USERNAME:-}" || -z "${REGISTRY_PASSWORD:-}" ]]; then
+  echo "Connectez-vous d'abord :"
+  echo "  echo \$GITHUB_TOKEN | docker login ghcr.io --username \$GITHUB_USER --password-stdin"
+  exit 1
 fi
+
+echo "$REGISTRY_PASSWORD" | docker login "$REGISTRY" --username "$REGISTRY_USERNAME" --password-stdin
 
 VOTE_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/vote:$IMAGE_TAG"
 RESULT_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/result:$IMAGE_TAG"
@@ -39,8 +41,8 @@ docker image push "$REGISTRY/$IMAGE_NAMESPACE/worker:latest"
 
 cat <<EOF
 
-Images pushed:
-- $VOTE_IMAGE
-- $RESULT_IMAGE
-- $WORKER_IMAGE
+Images poussées vers GHCR :
+  $VOTE_IMAGE
+  $RESULT_IMAGE
+  $WORKER_IMAGE
 EOF

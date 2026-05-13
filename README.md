@@ -1,211 +1,127 @@
-# TP DevOps — Volet 3 : pousser les images et déployer
+# TP DevOps — Volet 3 : publier les images sur GitHub Container Registry
 
-Bienvenue dans la branche `azure_deploy`. Les Dockerfiles sont complets. Le but principal est maintenant de publier les images avec `docker image push`, puis de déployer l'application.
+Bienvenue dans la branche `github_deploy`. Les Dockerfiles sont complets. Le but est de comprendre le cycle **build → tag → push** et d'automatiser cette publication via GitHub Actions.
 
-Deux chemins sont proposés :
-
-1. cible principale : Azure Container Registry puis Azure Container Apps ;
-2. fallback : GitHub Container Registry personnel de chaque étudiant.
-
-## Architecture
+## Objectif
 
 ```text
-GitHub ou terminal étudiant
-  ├─ docker build
-  ├─ docker image push
-  └─ déploiement optionnel
-
-Registry
-  ├─ vote
-  ├─ result
-  └─ worker
-
-Azure Container Apps
-  ├─ ca-vote    (ingress public)
-  ├─ ca-result  (ingress public)
-  └─ ca-worker  (pas d'ingress)
+Code source
+  └─ docker build
+       └─ image locale
+            └─ docker image push
+                 └─ ghcr.io/<login>/formation-vote/vote:sha
+                    ghcr.io/<login>/formation-vote/result:sha
+                    ghcr.io/<login>/formation-vote/worker:sha
 ```
 
-Redis et PostgreSQL peuvent être :
+Deux chemins possibles :
 
-- des services managés Azure, recommandé pour un déploiement propre ;
-- des services temporaires fournis par un autre environnement de TP.
+1. **Manuel** — build et push depuis votre machine avec `scripts/ghcr/build-and-push.sh` ;
+2. **Automatique** — push sur la branche déclenche le workflow GitHub Actions qui fait tout.
 
 ## Prérequis
 
-Installez :
-
-- Docker ;
-- Azure CLI si vous ciblez Azure ;
-- un compte Azure si vous utilisez ACR ou Container Apps ;
-- un compte GitHub si vous utilisez GHCR.
+- Docker installé et en cours d'exécution ;
+- un compte GitHub.
 
 Vérifiez :
 
 ```bash
 docker version
-az version
 ```
 
-## Étape 1 — Choisir le registry
+## Étape 1 — Créer un token GitHub
 
-### Option A — Azure Container Registry
+Allez sur <https://github.com/settings/tokens> et créez un **Personal Access Token (classic)** avec la portée `write:packages`.
 
-Créez les ressources de base :
+Gardez-le, il sera votre mot de passe pour `docker login ghcr.io`.
+
+## Étape 2 — Se connecter à GHCR
 
 ```bash
-az login
-az group create --name rg-formation-vote --location westeurope
-az acr create --resource-group rg-formation-vote --name acrformationvote --sku Basic
-az acr login --name acrformationvote
+echo "VOTRE_TOKEN" | docker login ghcr.io --username VOTRE_LOGIN --password-stdin
 ```
 
-Votre registry sera :
+Résultat attendu : `Login Succeeded`.
 
-```text
-acrformationvote.azurecr.io
-```
-
-### Option B — GitHub Container Registry
-
-Connectez-vous à GHCR :
-
-```bash
-echo "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_USER" --password-stdin
-```
-
-Votre registry sera :
-
-```text
-ghcr.io
-```
-
-Votre namespace peut être :
-
-```text
-<votre-login-github>/formation-vote
-```
-
-## Étape 2 — Configurer les variables
+## Étape 3 — Configurer les variables
 
 Copiez l'exemple :
 
 ```bash
-cp .env.azure.example .env.azure
+cp .env.ghcr.example .env.ghcr
 ```
 
-Pour ACR :
-
-```bash
-REGISTRY=acrformationvote.azurecr.io
-IMAGE_NAMESPACE=formation-vote
-ACR_NAME=acrformationvote
-```
-
-Pour GHCR :
+Éditez `.env.ghcr` :
 
 ```bash
 REGISTRY=ghcr.io
-IMAGE_NAMESPACE=<votre-login-github>/formation-vote
+IMAGE_NAMESPACE=VOTRE_LOGIN_GITHUB/formation-vote
+REGISTRY_USERNAME=VOTRE_LOGIN_GITHUB
+REGISTRY_PASSWORD=VOTRE_TOKEN
+IMAGE_TAG=local
 ```
 
-Ne commitez jamais `.env.azure`.
+Ne commitez jamais `.env.ghcr`.
 
-## Étape 3 — Build et push manuel
-
-Le script fourni utilise explicitement `docker image push`.
+## Étape 4 — Build et push manuel
 
 ```bash
-bash scripts/azure/build-and-push.sh
+bash scripts/ghcr/build-and-push.sh
 ```
 
-Il construit et pousse :
+Ce script construit les trois images et les pousse vers GHCR :
 
 ```text
-$REGISTRY/$IMAGE_NAMESPACE/vote:$IMAGE_TAG
-$REGISTRY/$IMAGE_NAMESPACE/result:$IMAGE_TAG
-$REGISTRY/$IMAGE_NAMESPACE/worker:$IMAGE_TAG
+ghcr.io/$IMAGE_NAMESPACE/vote:$IMAGE_TAG
+ghcr.io/$IMAGE_NAMESPACE/result:$IMAGE_TAG
+ghcr.io/$IMAGE_NAMESPACE/worker:$IMAGE_TAG
 ```
 
-Vous pouvez aussi le faire à la main :
+Vous pouvez aussi le faire image par image pour comprendre chaque commande :
 
 ```bash
-docker build --target final -t "$REGISTRY/$IMAGE_NAMESPACE/vote:$IMAGE_TAG" ./vote
-docker image push "$REGISTRY/$IMAGE_NAMESPACE/vote:$IMAGE_TAG"
+# Construire
+docker build --target final -t ghcr.io/<login>/formation-vote/vote:local ./vote
+
+# Vérifier l'image locale
+docker image ls ghcr.io/<login>/formation-vote/vote
+
+# Pousser
+docker image push ghcr.io/<login>/formation-vote/vote:local
 ```
 
 Refaites la même chose pour `result` et `worker`.
 
-## Étape 4 — Déployer via Azure CLI
+## Étape 5 — Vérifier dans GHCR
 
-Créez un environnement Container Apps :
+Allez sur `https://github.com/<login>?tab=packages`. Vous devez voir les trois packages :
 
-```bash
-az containerapp env create \
-  --resource-group rg-formation-vote \
-  --name cae-formation-vote \
-  --location westeurope
-```
+- `formation-vote/vote`
+- `formation-vote/result`
+- `formation-vote/worker`
 
-Renseignez dans `.env.azure` :
+## Étape 6 — Automatiser avec GitHub Actions
 
-```text
-AZURE_RESOURCE_GROUP=rg-formation-vote
-CONTAINERAPPS_ENVIRONMENT=cae-formation-vote
-REDIS_CONNECTION_STRING=...
-DATABASE_URL=...
-POSTGRES_CONNECTION_STRING=...
-```
-
-Déployez :
-
-```bash
-bash scripts/azure/deploy-container-apps.sh
-```
-
-Le script crée ou met à jour :
-
-- `ca-vote` avec ingress public ;
-- `ca-result` avec ingress public ;
-- `ca-worker` sans ingress.
-
-## Étape 5 — Déployer via GitHub Actions
-
-Le workflow fourni est :
+Le workflow est prêt :
 
 ```text
 .github/workflows/publish-and-deploy.yml
 ```
 
-Par défaut, il pousse vers GHCR :
+Il se déclenche automatiquement à chaque push sur `github_deploy` ou manuellement via **Actions → Run workflow**.
 
-```text
-ghcr.io/${{ github.repository_owner }}/formation-vote
-```
+Il effectue les opérations suivantes :
 
-Pour cibler ACR, éditez le bloc `env` du workflow ou remplacez les valeurs par des variables/secrets GitHub :
+1. connexion à GHCR avec `GITHUB_TOKEN` (aucun secret à configurer) ;
+2. `docker build` des trois images ;
+3. `docker image push` vers `ghcr.io/${{ github.repository_owner }}/formation-vote/...`.
 
-```yaml
-REGISTRY: acrformationvote.azurecr.io
-IMAGE_NAMESPACE: formation-vote
-REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
-REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
-```
+Pour activer le workflow :
 
-Le workflow a deux usages :
-
-1. push sur `azure_deploy` : build + push des images ;
-2. lancement manuel `workflow_dispatch` avec `deploy_to_azure=true` : build + push + déploiement Azure Container Apps.
-
-## Variables applicatives
-
-| Service | Variables utiles |
-| --- | --- |
-| `vote` | `OPTION_A`, `OPTION_B`, `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `REDIS_SSL` |
-| `result` | `DATABASE_URL`, `PORT` |
-| `worker` | `REDIS_CONNECTION_STRING`, `POSTGRES_CONNECTION_STRING` |
-
-Les valeurs par défaut restent compatibles avec `docker-compose.yml` pour un test local.
+1. Poussez un changement sur la branche `github_deploy` (par exemple, modifiez un Dockerfile) ;
+2. Allez dans l'onglet **Actions** du dépôt ;
+3. Observez le job `Build and push images to GHCR` s'exécuter.
 
 ## Tester localement avant push
 
@@ -215,8 +131,8 @@ docker compose up --build
 
 Ouvrez :
 
-- vote : <http://localhost:8080> ;
-- résultats : <http://localhost:8081>.
+- vote : <http://localhost:8080>
+- résultats : <http://localhost:8081>
 
 Arrêtez :
 
@@ -224,19 +140,32 @@ Arrêtez :
 docker compose down -v
 ```
 
-## Nettoyage Azure
+## Variables applicatives
 
-Attention, Azure peut générer des coûts.
+| Service | Variables configurables |
+| --- | --- |
+| `vote` | `OPTION_A`, `OPTION_B`, `REDIS_URL` ou `REDIS_HOST`/`REDIS_PORT` |
+| `result` | `DATABASE_URL`, `PORT` |
+| `worker` | `REDIS_CONNECTION_STRING`, `POSTGRES_CONNECTION_STRING` |
+
+Les valeurs par défaut dans `docker-compose.yml` fonctionnent en local.
+
+## Nettoyage
+
+Supprimez les images locales :
 
 ```bash
-az group delete --name rg-formation-vote --yes
+docker rmi ghcr.io/<login>/formation-vote/vote:local
+docker rmi ghcr.io/<login>/formation-vote/result:local
+docker rmi ghcr.io/<login>/formation-vote/worker:local
 ```
+
+Pour supprimer un package de GHCR, allez dans **Settings → Packages** sur votre profil GitHub.
 
 ## Critères de réussite
 
 Le volet est terminé quand :
 
-1. les trois images sont visibles dans ACR ou GHCR ;
+1. les trois images sont visibles dans GHCR (`ghcr.io/<login>/formation-vote/...`) ;
 2. vous savez expliquer la différence entre `docker build`, `docker tag` et `docker image push` ;
-3. vous pouvez déployer via Azure CLI ou via GitHub Actions ;
-4. les URLs publiques de `vote` et `result` répondent.
+3. le workflow GitHub Actions s'est exécuté avec succès dans l'onglet **Actions** du dépôt.

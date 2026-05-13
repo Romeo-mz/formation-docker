@@ -1,64 +1,36 @@
-name: "Publish images and optionally deploy"
+name: "Publish images to GHCR"
 
 on:
   push:
     branches:
-      - azure_deploy
+      - github_deploy
     paths:
       - "vote/**"
       - "result/**"
       - "worker/**"
       - ".github/workflows/publish-and-deploy.yml"
   workflow_dispatch:
-    inputs:
-      deploy_to_azure:
-        description: "Deploy to Azure Container Apps after pushing images"
-        type: boolean
-        default: false
 
 permissions:
   contents: read
   packages: write
-  id-token: write
 
 env:
   IMAGE_TAG: ${{ github.sha }}
-
-  # Default fallback: each student can push to their own GitHub Container Registry namespace.
-  # For Azure Container Registry, replace REGISTRY with: <your-acr-name>.azurecr.io
   REGISTRY: ghcr.io
   IMAGE_NAMESPACE: ${{ github.repository_owner }}/formation-vote
 
-  # GHCR works with GITHUB_TOKEN by default.
-  # For ACR, replace these with GitHub secrets or repository variables.
-  REGISTRY_USERNAME: ${{ github.actor }}
-  REGISTRY_PASSWORD: ${{ github.token }}
-
-  # Azure deployment placeholders. Replace them during the Azure part of the TP.
-  AZURE_CLIENT_ID: "00000000-0000-0000-0000-000000000000"
-  AZURE_TENANT_ID: "00000000-0000-0000-0000-000000000000"
-  AZURE_SUBSCRIPTION_ID: "00000000-0000-0000-0000-000000000000"
-  AZURE_RESOURCE_GROUP: "rg-formation-vote"
-  AZURE_LOCATION: "westeurope"
-  CONTAINERAPPS_ENVIRONMENT: "cae-formation-vote"
-  VOTE_APP_NAME: "ca-vote"
-  RESULT_APP_NAME: "ca-result"
-  WORKER_APP_NAME: "ca-worker"
-  REDIS_CONNECTION_STRING: "redis://CHANGE_ME:6379"
-  POSTGRES_CONNECTION_STRING: "Server=CHANGE_ME;Username=CHANGE_ME;Password=CHANGE_ME;Database=postgres;Ssl Mode=Require;"
-  DATABASE_URL: "postgres://CHANGE_ME:CHANGE_ME@CHANGE_ME/postgres?sslmode=require"
-
 jobs:
   publish-images:
-    name: Build and push images
+    name: Build and push images to GHCR
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
 
-      - name: Login to target registry
-        run: echo "$REGISTRY_PASSWORD" | docker login "$REGISTRY" --username "$REGISTRY_USERNAME" --password-stdin
+      - name: Login to GitHub Container Registry
+        run: echo "${{ github.token }}" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
 
       - name: Build images
         run: |
@@ -70,7 +42,7 @@ jobs:
           docker build -t "$RESULT_IMAGE" -t "$REGISTRY/$IMAGE_NAMESPACE/result:latest" ./result
           docker build -t "$WORKER_IMAGE" -t "$REGISTRY/$IMAGE_NAMESPACE/worker:latest" ./worker
 
-      - name: Push images with docker image push
+      - name: Push images
         run: |
           docker image push "$REGISTRY/$IMAGE_NAMESPACE/vote:$IMAGE_TAG"
           docker image push "$REGISTRY/$IMAGE_NAMESPACE/vote:latest"
@@ -79,142 +51,9 @@ jobs:
           docker image push "$REGISTRY/$IMAGE_NAMESPACE/worker:$IMAGE_TAG"
           docker image push "$REGISTRY/$IMAGE_NAMESPACE/worker:latest"
 
-  deploy-azure:
-    name: Optional Azure Container Apps deployment
-    runs-on: ubuntu-latest
-    needs: publish-images
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_to_azure == true }}
-
-    steps:
-      - name: Login to Azure
-        uses: azure/login@v2
-        with:
-          client-id: ${{ env.AZURE_CLIENT_ID }}
-          tenant-id: ${{ env.AZURE_TENANT_ID }}
-          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Ensure Container Apps extension is installed
-        run: az extension add --name containerapp --upgrade
-
-      - name: Ensure Container Apps environment exists
+      - name: Print image names
         run: |
-          az containerapp env show \
-            --name "$CONTAINERAPPS_ENVIRONMENT" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            >/dev/null 2>&1 || \
-          az containerapp env create \
-            --name "$CONTAINERAPPS_ENVIRONMENT" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --location "$AZURE_LOCATION"
-
-      - name: Deploy vote app
-        run: |
-          VOTE_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/vote:$IMAGE_TAG"
-
-          if az containerapp show --name "$VOTE_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
-            az containerapp registry set \
-              --name "$VOTE_APP_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --server "$REGISTRY" \
-              --username "$REGISTRY_USERNAME" \
-              --password "$REGISTRY_PASSWORD"
-            az containerapp secret set \
-              --name "$VOTE_APP_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --secrets redis-url="$REDIS_CONNECTION_STRING"
-            az containerapp update \
-              --name "$VOTE_APP_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --image "$VOTE_IMAGE" \
-              --set-env-vars OPTION_A="Cats" OPTION_B="Dogs" REDIS_URL="secretref:redis-url"
-          else
-            az containerapp create \
-              --name "$VOTE_APP_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --environment "$CONTAINERAPPS_ENVIRONMENT" \
-              --image "$VOTE_IMAGE" \
-              --registry-server "$REGISTRY" \
-              --registry-username "$REGISTRY_USERNAME" \
-              --registry-password "$REGISTRY_PASSWORD" \
-              --target-port 80 \
-              --ingress external \
-              --secrets redis-url="$REDIS_CONNECTION_STRING" \
-              --env-vars OPTION_A="Cats" OPTION_B="Dogs" REDIS_URL="secretref:redis-url"
-          fi
-
-      - name: Deploy result app
-        run: |
-          RESULT_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/result:$IMAGE_TAG"
-
-          if az containerapp show --name "$RESULT_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
-            az containerapp registry set \
-              --name "$RESULT_APP_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --server "$REGISTRY" \
-              --username "$REGISTRY_USERNAME" \
-              --password "$REGISTRY_PASSWORD"
-            az containerapp secret set \
-              --name "$RESULT_APP_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --secrets database-url="$DATABASE_URL"
-            az containerapp update \
-              --name "$RESULT_APP_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --image "$RESULT_IMAGE" \
-              --set-env-vars DATABASE_URL="secretref:database-url"
-          else
-            az containerapp create \
-              --name "$RESULT_APP_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --environment "$CONTAINERAPPS_ENVIRONMENT" \
-              --image "$RESULT_IMAGE" \
-              --registry-server "$REGISTRY" \
-              --registry-username "$REGISTRY_USERNAME" \
-              --registry-password "$REGISTRY_PASSWORD" \
-              --target-port 80 \
-              --ingress external \
-              --secrets database-url="$DATABASE_URL" \
-              --env-vars DATABASE_URL="secretref:database-url"
-          fi
-
-      - name: Deploy worker app
-        run: |
-          WORKER_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/worker:$IMAGE_TAG"
-
-          if az containerapp show --name "$WORKER_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
-            az containerapp registry set \
-              --name "$WORKER_APP_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --server "$REGISTRY" \
-              --username "$REGISTRY_USERNAME" \
-              --password "$REGISTRY_PASSWORD"
-            az containerapp secret set \
-              --name "$WORKER_APP_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --secrets \
-                redis-connection-string="$REDIS_CONNECTION_STRING" \
-                postgres-connection-string="$POSTGRES_CONNECTION_STRING"
-            az containerapp update \
-              --name "$WORKER_APP_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --image "$WORKER_IMAGE" \
-              --set-env-vars \
-                REDIS_CONNECTION_STRING="secretref:redis-connection-string" \
-                POSTGRES_CONNECTION_STRING="secretref:postgres-connection-string"
-          else
-            az containerapp create \
-              --name "$WORKER_APP_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --environment "$CONTAINERAPPS_ENVIRONMENT" \
-              --image "$WORKER_IMAGE" \
-              --registry-server "$REGISTRY" \
-              --registry-username "$REGISTRY_USERNAME" \
-              --registry-password "$REGISTRY_PASSWORD" \
-              --ingress disabled \
-              --secrets \
-                redis-connection-string="$REDIS_CONNECTION_STRING" \
-                postgres-connection-string="$POSTGRES_CONNECTION_STRING" \
-              --env-vars \
-                REDIS_CONNECTION_STRING="secretref:redis-connection-string" \
-                POSTGRES_CONNECTION_STRING="secretref:postgres-connection-string"
-          fi
+          echo "Images publiées :"
+          echo "  ghcr.io/$IMAGE_NAMESPACE/vote:$IMAGE_TAG"
+          echo "  ghcr.io/$IMAGE_NAMESPACE/result:$IMAGE_TAG"
+          echo "  ghcr.io/$IMAGE_NAMESPACE/worker:$IMAGE_TAG"

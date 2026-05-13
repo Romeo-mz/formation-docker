@@ -6,4 +6,4 @@ obj/
 node_modules/
 */certs/*
 .env
-.env.azure
+.env.ghcr

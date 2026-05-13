@@ -6,7 +6,7 @@ services:
   vote:
     build: 
       context: ./vote
-      target: dev
+      target: final
     depends_on:
       redis:
         condition: service_healthy
@@ -16,8 +16,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    volumes:
-     - ./vote:/usr/local/app
     ports:
       - "8080:80"
     networks:
@@ -26,16 +24,11 @@ services:
 
   result:
     build: ./result
-    # use nodemon rather than node for local dev
-    entrypoint: nodemon --inspect=0.0.0.0 server.js
     depends_on:
       db:
         condition: service_healthy 
-    volumes:
-      - ./result:/usr/local/app
     ports:
       - "8081:80"
-      - "127.0.0.1:9229:9229"
     networks:
       - front-tier
       - back-tier

@@ -1,486 +1,242 @@
-# TP DevOps — de l'installation manuelle au déploiement Azure
+# TP DevOps — Volet 3 : pousser les images et déployer
 
-Ce dépôt sert de support de formation pour comprendre, pas à pas, comment on passe d'une application lancée « à la main » à une livraison automatisée dans Azure.
+Bienvenue dans la branche `azure_deploy`. Les Dockerfiles sont complets. Le but principal est maintenant de publier les images avec `docker image push`, puis de déployer l'application.
 
-L'application est volontairement simple : un vote entre deux options. Son intérêt vient de son architecture distribuée. Elle mélange Python, Node.js, .NET, Redis et PostgreSQL. C'est un bon terrain de jeu pour apprendre Docker, Docker Compose, les registres d'images et le déploiement cloud.
+Deux chemins sont proposés :
 
-## Objectifs du TP
+1. cible principale : Azure Container Registry puis Azure Container Apps ;
+2. fallback : GitHub Container Registry personnel de chaque étudiant.
 
-À la fin du TP, vous saurez :
-
-1. lancer une application multi-services sans Docker ;
-2. écrire les Dockerfiles des services applicatifs ;
-3. utiliser Docker Compose pour orchestrer les services ;
-4. construire et publier des images dans Azure Container Registry ;
-5. déployer ces images sur Azure Container Apps via GitHub Actions.
-
-## Organisation des branches
-
-Le TP est découpé en trois volets. Chaque volet correspond à une branche de travail.
-
-| Branche | Objectif | Ce que l'on apprend |
-| --- | --- | --- |
-| `hard_deploy` | Déployer sans Docker | Dépendances système, ordre de démarrage, variables d'environnement, logs |
-| `easy_deploy` | Créer les Dockerfiles uniquement | Images, layers, ports, commandes de lancement, healthchecks |
-| `azure_deploy` | Publier et déployer dans Azure | ACR, GitHub Actions, Azure Container Apps, secrets |
-
-> Les fichiers Compose restent dans le dépôt. Ils servent de filet de sécurité et d'outil d'orchestration pendant le TP.
-
-## Architecture de l'application
-
-![Diagramme d'architecture](architecture.excalidraw.png)
-
-L'application contient cinq services.
-
-| Service | Technologie | Rôle | Port local |
-| --- | --- | --- | --- |
-| `vote` | Python / Flask / Gunicorn | Interface pour voter | `8080` |
-| `redis` | Redis | File de messages des votes entrants | interne |
-| `worker` | .NET / C# | Lit Redis et écrit dans PostgreSQL | aucun |
-| `db` | PostgreSQL | Stocke les votes | interne |
-| `result` | Node.js / Express / Socket.io | Affiche les résultats en temps réel | `8081` |
-
-Flux principal :
+## Architecture
 
 ```text
-Navigateur → vote → Redis → worker → PostgreSQL → result → Navigateur
+GitHub ou terminal étudiant
+  ├─ docker build
+  ├─ docker image push
+  └─ déploiement optionnel
+
+Registry
+  ├─ vote
+  ├─ result
+  └─ worker
+
+Azure Container Apps
+  ├─ ca-vote    (ingress public)
+  ├─ ca-result  (ingress public)
+  └─ ca-worker  (pas d'ingress)
 ```
 
-Un vote passe donc par plusieurs composants. C'est exactement ce que l'on veut observer dans un TP DevOps : réseau, configuration, logs, healthchecks et persistance.
+Redis et PostgreSQL peuvent être :
+
+- des services managés Azure, recommandé pour un déploiement propre ;
+- des services temporaires fournis par un autre environnement de TP.
 
 ## Prérequis
 
-Pour faire tout le TP, installez :
+Installez :
 
-- Git ;
-- Python 3.11 ou une version compatible ;
-- Node.js 18 ;
-- SDK .NET 7 ;
-- Redis ;
-- PostgreSQL 15 ;
 - Docker ;
-- Docker Compose ;
-- Azure CLI ;
-- un compte Azure ;
-- un dépôt GitHub avec GitHub Actions activé.
+- Azure CLI si vous ciblez Azure ;
+- un compte Azure si vous utilisez ACR ou Container Apps ;
+- un compte GitHub si vous utilisez GHCR.
 
-Vérifiez Docker :
-
-```bash
-docker run hello-world
-```
-
-Vérifiez Azure CLI :
+Vérifiez :
 
 ```bash
+docker version
 az version
+```
+
+## Étape 1 — Choisir le registry
+
+### Option A — Azure Container Registry
+
+Créez les ressources de base :
+
+```bash
 az login
+az group create --name rg-formation-vote --location westeurope
+az acr create --resource-group rg-formation-vote --name acrformationvote --sku Basic
+az acr login --name acrformationvote
 ```
 
-## Démarrage rapide avec Docker Compose
-
-Si vous voulez d'abord voir l'application fonctionner :
-
-```bash
-docker compose up
-```
-
-Ouvrez ensuite :
-
-- application de vote : <http://localhost:8080> ;
-- résultats : <http://localhost:8081>.
-
-Pour générer automatiquement des votes :
-
-```bash
-docker compose --profile seed up
-```
-
-Pour tout arrêter et supprimer le volume PostgreSQL :
-
-```bash
-docker compose down -v
-```
-
-## Volet 1 — Déployer à la dure, sans Docker
-
-Branche cible : `hard_deploy`.
-
-Le but est de comprendre ce que Docker nous évite ensuite. Ici, vous lancez chaque composant vous-même.
-
-### Travail à faire
-
-1. Installer Redis et PostgreSQL localement.
-2. Lancer Redis.
-3. Lancer PostgreSQL.
-4. Lancer le service `vote`.
-5. Lancer le service `result`.
-6. Lancer le service `worker`.
-7. Faire un vote et vérifier qu'il apparaît dans les résultats.
-
-### 1. Redis
-
-Lancez Redis avec votre gestionnaire de services ou directement en ligne de commande.
-
-Vérifiez qu'il répond :
-
-```bash
-redis-cli PING
-```
-
-Résultat attendu :
+Votre registry sera :
 
 ```text
-PONG
+acrformationvote.azurecr.io
 ```
 
-### 2. PostgreSQL
+### Option B — GitHub Container Registry
 
-Créez une base compatible avec les valeurs par défaut de l'application.
+Connectez-vous à GHCR :
 
 ```bash
-createdb postgres
+echo "$GITHUB_TOKEN" | docker login ghcr.io --username "$GITHUB_USER" --password-stdin
 ```
 
-Le `worker` crée automatiquement la table `votes` au démarrage si elle n'existe pas.
-
-En local, les valeurs de développement sont :
+Votre registry sera :
 
 ```text
-user     : postgres
-password : postgres
-database : postgres
+ghcr.io
 ```
 
-> Ces identifiants sont utiles pour le TP. Ne les utilisez pas en production.
+Votre namespace peut être :
 
-### 3. Service vote
+```text
+<votre-login-github>/formation-vote
+```
 
-Le service `vote` est une application Flask.
+## Étape 2 — Configurer les variables
+
+Copiez l'exemple :
 
 ```bash
-cd vote
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-export REDIS_HOST=localhost
-export OPTION_A="Cats"
-export OPTION_B="Dogs"
-python app.py
+cp .env.azure.example .env.azure
 ```
 
-Ouvrez <http://localhost:80> si vous lancez `python app.py` tel quel.
-
-Si vous préférez exposer le même port que Docker Compose :
+Pour ACR :
 
 ```bash
-gunicorn app:app -b 0.0.0.0:8080 --workers 4
+REGISTRY=acrformationvote.azurecr.io
+IMAGE_NAMESPACE=formation-vote
+ACR_NAME=acrformationvote
 ```
 
-Ouvrez alors <http://localhost:8080>.
-
-### 4. Service result
-
-Le service `result` est une application Node.js.
+Pour GHCR :
 
 ```bash
-cd result
-npm ci
-export PORT=8081
-export DATABASE_URL=postgres://postgres:postgres@localhost/postgres
-node server.js
+REGISTRY=ghcr.io
+IMAGE_NAMESPACE=<votre-login-github>/formation-vote
 ```
 
-Ouvrez <http://localhost:8081>.
+Ne commitez jamais `.env.azure`.
 
-### 5. Service worker
+## Étape 3 — Build et push manuel
 
-Le `worker` lit les votes dans Redis et les écrit dans PostgreSQL.
+Le script fourni utilise explicitement `docker image push`.
 
 ```bash
-cd worker
-dotnet restore
-dotnet build
-export REDIS_CONNECTION_STRING=localhost
-export POSTGRES_CONNECTION_STRING="Server=localhost;Username=postgres;Password=postgres;Database=postgres;"
-dotnet run
+bash scripts/azure/build-and-push.sh
 ```
 
-### Checkpoints
+Il construit et pousse :
 
-Après un vote :
+```text
+$REGISTRY/$IMAGE_NAMESPACE/vote:$IMAGE_TAG
+$REGISTRY/$IMAGE_NAMESPACE/result:$IMAGE_TAG
+$REGISTRY/$IMAGE_NAMESPACE/worker:$IMAGE_TAG
+```
+
+Vous pouvez aussi le faire à la main :
 
 ```bash
-redis-cli LLEN votes
+docker build --target final -t "$REGISTRY/$IMAGE_NAMESPACE/vote:$IMAGE_TAG" ./vote
+docker image push "$REGISTRY/$IMAGE_NAMESPACE/vote:$IMAGE_TAG"
 ```
 
-Puis côté PostgreSQL :
+Refaites la même chose pour `result` et `worker`.
+
+## Étape 4 — Déployer via Azure CLI
+
+Créez un environnement Container Apps :
 
 ```bash
-psql -U postgres -d postgres -c "select * from votes;"
+az containerapp env create \
+  --resource-group rg-formation-vote \
+  --name cae-formation-vote \
+  --location westeurope
 ```
 
-Vous devez voir le vote stocké ou mis à jour.
+Renseignez dans `.env.azure` :
 
-### Questions pour comprendre
+```text
+AZURE_RESOURCE_GROUP=rg-formation-vote
+CONTAINERAPPS_ENVIRONMENT=cae-formation-vote
+REDIS_CONNECTION_STRING=...
+DATABASE_URL=...
+POSTGRES_CONNECTION_STRING=...
+```
 
-- Pourquoi faut-il lancer Redis avant `vote` ?
-- Pourquoi `worker` dépend-il de Redis et PostgreSQL ?
-- Que se passe-t-il si PostgreSQL tombe ?
-- Où sont les valeurs de connexion dans chaque service ?
-- Que gagne-t-on à les sortir dans des variables d'environnement ?
-
-## Volet 2 — Créer les Dockerfiles
-
-Branche cible : `easy_deploy`.
-
-Le but est de containeriser les services applicatifs. Les fichiers Compose restent en place pour lancer toute l'application.
-
-### Travail à faire
-
-Écrire ou compléter :
-
-- `vote/Dockerfile` ;
-- `result/Dockerfile` ;
-- `worker/Dockerfile`.
-
-Les images Redis et PostgreSQL viennent du registre Docker officiel. Vous ne les reconstruisez pas.
-
-### Construire les images
-
-Depuis la racine du dépôt :
+Déployez :
 
 ```bash
-docker build --target final -t formation-vote:local ./vote
-docker build -t formation-result:local ./result
-docker build -t formation-worker:local ./worker
+bash scripts/azure/deploy-container-apps.sh
 ```
 
-Pour le worker, vous pouvez aussi utiliser Buildx si vous voulez cibler une architecture précise :
+Le script crée ou met à jour :
 
-```bash
-docker buildx build --platform linux/amd64 -t formation-worker:local ./worker --load
+- `ca-vote` avec ingress public ;
+- `ca-result` avec ingress public ;
+- `ca-worker` sans ingress.
+
+## Étape 5 — Déployer via GitHub Actions
+
+Le workflow fourni est :
+
+```text
+.github/workflows/publish-and-deploy.yml
 ```
 
-### Lancer avec Compose
+Par défaut, il pousse vers GHCR :
 
-Le fichier `docker-compose.yml` sait construire les services depuis les sources :
+```text
+ghcr.io/${{ github.repository_owner }}/formation-vote
+```
+
+Pour cibler ACR, éditez le bloc `env` du workflow ou remplacez les valeurs par des variables/secrets GitHub :
+
+```yaml
+REGISTRY: acrformationvote.azurecr.io
+IMAGE_NAMESPACE: formation-vote
+REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+```
+
+Le workflow a deux usages :
+
+1. push sur `azure_deploy` : build + push des images ;
+2. lancement manuel `workflow_dispatch` avec `deploy_to_azure=true` : build + push + déploiement Azure Container Apps.
+
+## Variables applicatives
+
+| Service | Variables utiles |
+| --- | --- |
+| `vote` | `OPTION_A`, `OPTION_B`, `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `REDIS_SSL` |
+| `result` | `DATABASE_URL`, `PORT` |
+| `worker` | `REDIS_CONNECTION_STRING`, `POSTGRES_CONNECTION_STRING` |
+
+Les valeurs par défaut restent compatibles avec `docker-compose.yml` pour un test local.
+
+## Tester localement avant push
 
 ```bash
 docker compose up --build
 ```
 
-Si vous voulez tester vos images taguées à la main, remplacez temporairement les blocs `build:` par `image:` dans `docker-compose.yml`.
+Ouvrez :
 
-Exemple :
+- vote : <http://localhost:8080> ;
+- résultats : <http://localhost:8081>.
 
-```yaml
-services:
-	vote:
-		image: formation-vote:local
-```
-
-### Observer les services
+Arrêtez :
 
 ```bash
-docker compose ps
-docker compose logs vote
-docker compose logs worker
-docker compose logs result
+docker compose down -v
 ```
 
-### Comprendre les healthchecks
+## Nettoyage Azure
 
-Deux scripts aident Compose à attendre que les dépendances soient prêtes :
-
-- `healthchecks/redis.sh` ;
-- `healthchecks/postgres.sh`.
-
-Dans `docker-compose.yml`, les services applicatifs utilisent `depends_on` avec `condition: service_healthy`. Cela évite de démarrer trop tôt.
-
-### Exercices
-
-1. Supprimez Redis et observez les erreurs.
-2. Relancez Redis et observez la reconnexion.
-3. Inspectez la taille des images.
-4. Expliquez la différence entre le stage `dev` et le stage `final` du service `vote`.
-5. Trouvez où le port interne `80` devient `8080` ou `8081` sur votre machine.
-
-## Volet 3 — Publier dans Azure et déployer
-
-Branche cible : `azure_deploy`.
-
-Le but est d'automatiser la livraison : GitHub Actions construit les images, les pousse dans Azure Container Registry, puis met à jour Azure Container Apps.
-
-### Pourquoi Azure Container Apps ?
-
-Une Azure Web App mono-conteneur convient bien à une seule application web. Ici, l'application contient plusieurs services : `vote`, `result`, `worker`, Redis et PostgreSQL.
-
-Azure Container Apps est plus adapté pour ce TP, car il permet de déployer plusieurs applications conteneurisées dans un même environnement, avec ingress, variables, secrets et révisions.
-
-### Architecture cible
-
-```text
-GitHub Actions
-	├─ build vote/result/worker
-	├─ push vers Azure Container Registry
-	└─ update Azure Container Apps
-
-Azure
-	├─ Azure Container Registry
-	├─ Container App vote    (ingress public)
-	├─ Container App result  (ingress public)
-	├─ Container App worker  (pas d'ingress)
-	├─ Azure Cache for Redis
-	└─ Azure Database for PostgreSQL
-```
-
-Pour un TP court, vous pouvez aussi lancer Redis et PostgreSQL en conteneurs. Pour un environnement durable, préférez les services managés Azure.
-
-### Ressources Azure à créer
-
-Adaptez les noms à votre groupe.
-
-```bash
-az group create \
-	--name rg-formation-vote \
-	--location westeurope
-
-az acr create \
-	--resource-group rg-formation-vote \
-	--name acrformationvote \
-	--sku Basic
-
-az containerapp env create \
-	--resource-group rg-formation-vote \
-	--name cae-formation-vote \
-	--location westeurope
-```
-
-> Azure peut générer des coûts. Supprimez les ressources à la fin du TP si vous n'en avez plus besoin.
-
-### Paramètres du workflow GitHub Actions
-
-Le workflow `.github/workflows/azure-container-apps.yml` contient des placeholders pédagogiques en haut du fichier. Remplacez-les pendant le TP par vos vraies valeurs ou par des références à des variables/secrets GitHub Actions.
-
-Paramètres non sensibles :
-
-| Paramètre | Exemple |
-| --- | --- |
-| `AZURE_CLIENT_ID` | identifiant de l'application Azure AD |
-| `AZURE_TENANT_ID` | identifiant du tenant |
-| `AZURE_SUBSCRIPTION_ID` | identifiant de la souscription |
-| `AZURE_RESOURCE_GROUP` | `rg-formation-vote` |
-| `AZURE_LOCATION` | `westeurope` |
-| `ACR_NAME` | `acrformationvote` |
-| `ACR_LOGIN_SERVER` | `acrformationvote.azurecr.io` |
-| `CONTAINERAPPS_ENVIRONMENT` | `cae-formation-vote` |
-| `VOTE_APP_NAME` | `ca-vote` |
-| `RESULT_APP_NAME` | `ca-result` |
-| `WORKER_APP_NAME` | `ca-worker` |
-
-Paramètres sensibles à stocker comme secrets GitHub dans un vrai projet :
-
-| Paramètre | Usage |
-| --- | --- |
-| `ACR_USERNAME` | utilisateur autorisé à lire dans ACR |
-| `ACR_PASSWORD` | mot de passe ou token de lecture ACR |
-| `REDIS_CONNECTION_STRING` | connexion Redis pour Azure |
-| `POSTGRES_CONNECTION_STRING` | connexion PostgreSQL pour le worker |
-| `DATABASE_URL` | connexion PostgreSQL pour `result` |
-
-Exemple de remplacement après création des variables GitHub :
-
-```yaml
-ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
-DATABASE_URL: ${{ secrets.DATABASE_URL }}
-```
-
-Le workflow est pensé pour une authentification Azure par OIDC avec `azure/login`. C'est préférable à un mot de passe statique.
-
-### Variables applicatives utiles
-
-Les services acceptent les variables suivantes :
-
-| Service | Variables |
-| --- | --- |
-| `vote` | `OPTION_A`, `OPTION_B`, `REDIS_URL`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `REDIS_SSL` |
-| `result` | `PORT`, `DATABASE_URL` |
-| `worker` | `REDIS_CONNECTION_STRING`, `REDIS_HOST`, `POSTGRES_CONNECTION_STRING` |
-
-Les valeurs par défaut restent compatibles avec Docker Compose : `redis`, `db`, `postgres/postgres`.
-
-### Pipeline fournie
-
-Le workflow Azure se trouve dans :
-
-```text
-.github/workflows/azure-container-apps.yml
-```
-
-Il réalise les étapes suivantes :
-
-1. checkout du code ;
-2. connexion à Azure ;
-3. connexion à Azure Container Registry ;
-4. build des images `vote`, `result`, `worker` ;
-5. push des images vers ACR ;
-6. création ou mise à jour des Container Apps.
-
-### Nettoyage Azure
-
-À la fin du TP :
+Attention, Azure peut générer des coûts.
 
 ```bash
 az group delete --name rg-formation-vote --yes
 ```
 
-## Fichiers importants
+## Critères de réussite
 
-| Fichier | Rôle |
-| --- | --- |
-| `docker-compose.yml` | orchestration locale depuis les sources |
-| `docker-compose.images.yml` | orchestration avec images préconstruites |
-| `vote/` | application Flask de vote |
-| `result/` | application Node.js de résultats |
-| `worker/` | worker .NET de traitement |
-| `healthchecks/` | scripts de healthcheck Redis/PostgreSQL |
-| `seed-data/` | génération de votes de test |
-| `.github/workflows/` | pipelines CI/CD |
+Le volet est terminé quand :
 
-## Dépannage
-
-### Le service `vote` ne démarre pas
-
-Vérifiez Redis :
-
-```bash
-docker compose logs redis
-docker compose logs vote
-```
-
-### Le service `result` affiche zéro vote
-
-Vérifiez PostgreSQL et le worker :
-
-```bash
-docker compose logs db
-docker compose logs worker
-docker compose logs result
-```
-
-### Le worker boucle en attente
-
-Il attend probablement Redis ou PostgreSQL. Vérifiez les variables de connexion et les healthchecks.
-
-### Les résultats ne changent pas
-
-Le navigateur ne peut voter qu'une fois par cookie. Essayez une fenêtre privée ou supprimez le cookie `voter_id`.
-
-## Pour aller plus loin
-
-- Ajouter des tests automatisés plus modernes à la place de PhantomJS.
-- Ajouter une migration SQL explicite pour la table `votes`.
-- Remplacer les mots de passe de développement par des secrets.
-- Ajouter des probes et règles de scaling dans Azure Container Apps.
-- Comparer Azure Container Apps, Azure Web App for Containers et Kubernetes.
+1. les trois images sont visibles dans ACR ou GHCR ;
+2. vous savez expliquer la différence entre `docker build`, `docker tag` et `docker image push` ;
+3. vous pouvez déployer via Azure CLI ou via GitHub Actions ;
+4. les URLs publiques de `vote` et `result` répondent.

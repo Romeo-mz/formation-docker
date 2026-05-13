@@ -26,7 +26,7 @@ Installez localement :
 - Node.js 18 ou plus ;
 - SDK .NET 7 ;
 - Redis ;
-- PostgreSQL 15 ou plus.
+- PostgreSQL 14 ou plus (Ubuntu 22.04 LTS fournit la version 14 par défaut).
 
 Vérifiez les commandes :
 
@@ -44,7 +44,24 @@ Sous WSL :
 
 ```bash
 sudo apt update
-sudo apt install python3 nodejs npm dotnet-sdk-7.0 redis-server postgresql
+sudo apt install python3 nodejs npm dotnet-sdk-7.0 redis-server postgresql-14
+```
+
+> `postgresql-14` installe le **serveur** et le client. Ne confondez pas avec `postgresql-client-14` qui n'installe que le client sans le serveur.
+
+Vérifiez que le serveur est bien présent (il doit exister un cluster) :
+
+```bash
+pg_lsclusters
+# Doit afficher une ligne : 14  main  5432  down  postgres ...
+```
+
+Si la commande ne retourne aucune ligne, le serveur n'est pas installé :
+
+```bash
+dpkg -l postgresql-14
+# Si absent :
+sudo apt install postgresql-14
 ```
 
 ## Configuration minimale
@@ -88,21 +105,32 @@ Le terminal Redis doit afficher `Ready to accept connections`.
 
 ### Terminal 2 — PostgreSQL
 
-Lancer PostgreSQL :
+**Étape 1** — démarrez le cluster :
 
 ```bash
-sudo service postgresql start
+sudo pg_ctlcluster 14 main start
 ```
 
-Configurez ensuite le mot de passe du rôle PostgreSQL utilisé par l'application :
+**Étape 2** — passez l'authentification TCP en `md5`.
+
+Par défaut, Ubuntu 22.04 utilise `scram-sha-256`. Le worker .NET tourne avec Npgsql 4.x qui ne supporte pas ce protocole. Changez-le en `md5` :
+
+```bash
+sudo sed -i 's/scram-sha-256/md5/g' /etc/postgresql/14/main/pg_hba.conf
+sudo pg_ctlcluster 14 main restart
+```
+
+> `pg_hba.conf` (Host-Based Authentication) contrôle quelle méthode d'authentification PostgreSQL exige selon l'adresse cliente. `md5` est compatible avec tous les clients courants.
+
+**Étape 3** — configurez le mot de passe du rôle PostgreSQL :
 
 ```bash
 sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD 'postgres';"
 ```
 
-> Important : `sudo passwd postgres` change le mot de passe de l'utilisateur Linux `postgres`. Le worker .NET utilise une connexion TCP PostgreSQL ; il lui faut donc le mot de passe du rôle PostgreSQL, configuré avec `ALTER USER`.
+> Important : `sudo passwd postgres` change le mot de passe de l'utilisateur **Linux** `postgres`. Le worker .NET utilise une connexion TCP ; il lui faut le mot de passe du **rôle** PostgreSQL, configuré avec `ALTER USER`.
 
-Puis vérifiez la connexion TCP, comme le fera le worker :
+**Étape 4** — vérifiez la connexion TCP, comme le fera le worker :
 
 ```bash
 PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "select 1;"
@@ -128,11 +156,7 @@ bash scripts/hard_deploy/run-result.sh
 
 Ouvrez <http://localhost:8081>.
 
-### Terminal 5 — worker
 
-```bash
-bash scripts/hard_deploy/run-worker.sh
-```
 
 ## Checkpoint
 
@@ -150,8 +174,9 @@ Vous devez voir une ligne par navigateur votant.
 | --- | --- |
 | `vote` ne démarre pas | Redis n'est pas lancé ou `REDIS_HOST` est incorrect |
 | `result` affiche zéro vote | PostgreSQL ou `worker` ne fonctionne pas |
-| `worker` affiche `Waiting for db` en boucle | Lancez `sudo service postgresql start`, puis `sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD 'postgres';"` |
-| `worker` attend en boucle | Redis ou PostgreSQL est inaccessible, ou `POSTGRES_CONNECTION_STRING` ne correspond pas au mot de passe PostgreSQL |
+| `Connection refused` sur le port 5432 | Le serveur PostgreSQL n'est pas installé ou pas démarré. Vérifiez avec `pg_lsclusters` puis `sudo pg_ctlcluster 14 main start` |
+| `worker` affiche `Waiting for db` en boucle | PostgreSQL inaccessible ou auth `scram-sha-256` incompatible. Suivez les étapes 1-4 du Terminal 2 (pg_hba.conf → md5, restart, ALTER USER) |
+| `relation "votes" does not exist` dans result | Le worker n'a pas encore créé la table : attendez qu'il affiche `Connected to db`, ou vérifiez qu'il tourne |
 | impossible de revoter | supprimez le cookie `voter_id` ou utilisez une fenêtre privée |
 
 ## À retenir

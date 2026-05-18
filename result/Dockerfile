@@ -1,23 +1,18 @@
 # Formation : Utiliser un dockerignore pour éviter de copier des fichiers inutiles dans l'image.
-FROM node:18-slim
 
-# add curl for healthcheck
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl tini && \
-    rm -rf /var/lib/apt/lists/*
+# TODO formation : choisissez une image de base Node.js.
+
+# tini est un init minimaliste qui gère les signaux et les processus zombies.
+# Il doit être installé dans l'image pour que l'ENTRYPOINT ci-dessous fonctionne.
+# Sous Alpine : RUN apk add --no-cache tini
+# Sous Debian/Ubuntu : RUN apt-get install -y tini
+
+# We need curl for healthcheck
 
 WORKDIR /usr/local/app
 
+# TODO : copier les fichiers de dépendances en premier (pourquoi ?), puis installer, puis copier le code.
 # have nodemon available for local dev use (file watching) instead of node
-RUN npm install -g nodemon
-
-COPY package*.json ./
-
-RUN npm ci && \
- npm cache clean --force && \
- mv /usr/local/app/node_modules /node_modules
-
-COPY . .
 
 #ENV PORT=?
 #EXPOSE ?

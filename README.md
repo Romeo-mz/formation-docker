@@ -4,11 +4,16 @@ Bienvenue dans la branche `easy_deploy`. Les fichiers Compose sont déjà fourni
 
 Le but n'est pas encore de faire du cloud. Le but est de transformer trois applications lancées à la main en trois images reproductibles.
 
+
 ## Architecture
 
-```text
-Navigateur → vote → Redis → worker → PostgreSQL → result → Navigateur
-```
+![Architecture diagram](architecture.excalidraw.png)
+
+* A front-end web app in [Python](/vote) which lets you vote between two options
+* A [Redis](https://hub.docker.com/_/redis/) which collects new votes
+* A [.NET](/worker/) worker which consumes votes and stores them in…
+* A [Postgres](https://hub.docker.com/_/postgres/) database backed by a Docker volume
+* A [Node.js](/result) web app which shows the results of the voting in real time
 
 | Service | Image à construire ? | Technologie | Rôle |
 | --- | --- | --- | --- |
@@ -162,6 +167,7 @@ Faites la même chose pour `result` et `worker` si besoin.
 | Symptôme | Cause probable |
 | --- | --- |
 | `vote` est `unhealthy` | `curl` manque dans l'image ou l'application ne répond pas sur le port 80 |
+| `result` ne démarre pas avec `exec: /usr/bin/tini` | `tini` n'est pas installé dans l'image ; ajoutez `RUN apk add --no-cache tini` |
 | `result` ne démarre pas | dépendances Node absentes ou port incorrect |
 | `worker` boucle | Redis ou PostgreSQL n'est pas prêt |
 | build très lent | les dépendances sont copiées après tout le code |
@@ -182,3 +188,7 @@ Le volet est terminé quand :
 - Comparer la taille avant/après multi-stage.
 - Ajouter `.dockerignore` dans chaque service.
 - Construire pour `linux/amd64` et `linux/arm64` avec Buildx.
+
+## Volet suivant
+
+Changer de branche pour [githup_deploy](https://github.com/Romeo-mz/formation-docker/tree/github_deploy)

@@ -2,6 +2,16 @@
 
 Bienvenue dans la branche `hard_deploy`. Ici, il n'y a volontairement aucun Dockerfile, aucun fichier Compose et aucun workflow GitHub Actions. Le but est de sentir la douleur du déploiement manuel avant de la supprimer avec Docker.
 
+## Architecture
+
+![Architecture diagram](architecture.excalidraw.png)
+
+* A front-end web app in [Python](/vote) which lets you vote between two options
+* A [Redis](https://hub.docker.com/_/redis/) which collects new votes
+* A [.NET](/worker/) worker which consumes votes and stores them in…
+* A [Postgres](https://hub.docker.com/_/postgres/) database backed by a Docker volume
+* A [Node.js](/result) web app which shows the results of the voting in real time
+
 ## Objectif
 
 Lancer une application distribuée complète à la main :
@@ -149,7 +159,7 @@ Le worker créera la table `votes` automatiquement.
 bash scripts/hard_deploy/run-vote.sh
 ```
 
-> Formatter le script en LF (Unix) si vous êtes sous Windows, sinon il ne fonctionnera pas.
+> Formatter les fichiers en LF (Unix) si vous avez des erreurs du type $'\r': command not found
 
 Ouvrez <http://localhost:8080>.
 
@@ -182,7 +192,6 @@ Vous devez voir une ligne par navigateur votant.
 | Symptôme | Piste |
 | --- | --- |
 | `vote` ne démarre pas | Redis n'est pas lancé ou `REDIS_HOST` est incorrect |
-| `result` affiche zéro vote | PostgreSQL ou `worker` ne fonctionne pas |
 | `Connection refused` sur le port 5432 | Le serveur PostgreSQL n'est pas installé ou pas démarré. Vérifiez avec `pg_lsclusters` puis `sudo pg_ctlcluster 14 main start` |
 | `worker` affiche `Waiting for db` en boucle | PostgreSQL inaccessible ou auth `scram-sha-256` incompatible. Suivez les étapes 1-4 du Terminal 2 (pg_hba.conf → md5, restart, ALTER USER) |
 | `relation "votes" does not exist` dans result | Le worker n'a pas encore créé la table : attendez qu'il affiche `Connected to db`, ou vérifiez qu'il tourne |

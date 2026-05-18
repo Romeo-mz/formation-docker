@@ -326,3 +326,7 @@ psql -U postgres -d postgres -c "DROP TABLE IF EXISTS votes;"
 ```bash
 sudo apt remove --purge dotnet-sdk-7.0 redis-server postgresql
 ```
+
+## Volet suivant
+
+Changer de branche pour easy_deploy [easy_deploy](https://github.com/Romeo-mz/formation-docker/tree/easy_deploy)

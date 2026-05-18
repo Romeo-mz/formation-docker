@@ -182,10 +182,123 @@ bash scripts/hard_deploy/run-worker.sh
 Votez depuis <http://localhost:8080>, puis vérifiez la base :
 
 ```bash
-psql -U postgres -d postgres -c "select * from votes;"
+PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "select * from votes;"
 ```
 
 Vous devez voir une ligne par navigateur votant.
+
+## Exercices complémentaires
+
+### Exercice 1 — Simuler des pannes en cascade
+
+L'objectif est de **sentir la fragilité** du déploiement manuel : que se passe-t-il quand un maillon lâche ?
+
+**Panne Redis**
+
+Dans le terminal Redis, faites `Ctrl+C` pour stopper le serveur.
+Puis votez depuis <http://localhost:8080>.
+
+*Questions :*
+- Quel message d'erreur l'application de vote affiche-t-elle ?
+- L'erreur est-elle visible côté utilisateur ou seulement dans les logs du terminal ?
+- Relancez Redis (`redis-server`) ainsi que le worker : les votes envoyés pendant la panne sont-ils perdus ?
+
+**Panne du worker**
+
+Stoppez le worker (`Ctrl+C` dans son terminal). Votez plusieurs fois depuis le navigateur.
+
+```bash
+# Vérifiez l'accumulation dans la file Redis :
+redis-cli LLEN votes
+```
+
+Relancez le worker. Observez qu'il vide la file en rattrapant les votes en retard.
+
+*Questions :*
+- Combien de votes s'accumulent pendant l'arrêt ?
+- Le worker retrouve-t-il l'état correct sans intervention manuelle ?
+- Que serait-il arrivé si Redis avait aussi été arrêté entre-temps ?
+
+**Panne PostgreSQL**
+
+```bash
+sudo pg_ctlcluster 14 main stop
+```
+
+Observez les logs du worker : il doit afficher `Waiting for db` en boucle.
+
+```bash
+sudo pg_ctlcluster 14 main start
+```
+
+Le worker se reconnecte-t-il automatiquement ?
+
+---
+
+### Exercice 2 — Script de supervision manuelle
+
+En production on ne surveille pas 5 terminaux à la main. Écrivez un script `scripts/hard_deploy/healthcheck.sh` qui vérifie l'état de chaque service :
+
+```bash
+chmod +x scripts/hard_deploy/healthcheck.sh
+bash scripts/hard_deploy/healthcheck.sh
+```
+
+*Questions :*
+- Combien de lignes de script pour remplacer un simple `docker ps` ?
+- Ce script est-il fiable si un service écoute sur le port mais ne répond pas correctement ?
+
+---
+
+### Exercice 3 — Générer de la charge
+
+Utilisez `curl` pour simuler plusieurs votants simultanément et observer la file Redis se remplir et se vider :
+
+# Observer la file en temps réel (Ctrl+C pour arrêter)
+watch -n 0.5 "redis-cli LLEN votes && \
+  PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -t \
+  -c 'SELECT vote, count(*) FROM votes GROUP BY vote;'"
+```
+
+```bash
+# Envoyer 20 votes pour "a" depuis la ligne de commande
+for i in $(seq 1 20); do
+  curl -s -X POST http://localhost:8080 \
+    -d "vote=a" \
+    -b "voter_id=user_$i" \
+    -c /dev/null \
+    -o /dev/null
+done
+
+
+
+*Questions :*
+- Quel délai observez-vous entre l'envoi des votes et leur apparition dans PostgreSQL ?
+- Que se passe-t-il si vous envoyez 200 votes d'un coup ? Le worker suit-il ?
+- Comparez avec `redis-cli LLEN votes` : la file se vide-t-elle aussi vite qu'elle se remplit ?
+
+---
+
+### Exercice 4 — Redémarrage après crash (optionnel)
+
+Simulez le crash de l'application de vote :
+
+```bash
+# Trouvez son PID
+pgrep -f "python vote/app.py"
+
+# Tuez-le brutalement
+kill -9 $(pgrep -f "python vote/app.py")
+```
+
+Ensuite, tentez de la relancer **sans consulter ce README**. Notez chaque étape que vous devez retrouver de mémoire (répertoire, venv, variables d'environnement, port…).
+
+*Question finale :*
+> Combien d'étapes manuelles avez-vous dû refaire ? Imaginez devoir faire ça à 3h du matin lors d'un incident de production.
+>
+> C'est exactement le problème que Docker résout au volet suivant.
+
+---
 
 ## Dépannage rapide
 
